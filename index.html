@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF to Markdown Converter</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <head>
+    
+    <link rel="icon" type="image/x-icon" href="./PDF2MD.png">
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
+</head>
+<body class="bg-gradient-to-br from-slate-50 to-slate-100 min-h-screen flex flex-col items-center justify-center p-6 font-sans">
+
+    <div class="w-full max-w-xl bg-white rounded-2xl shadow-xl p-8 border border-slate-100 transition-all">
+        <div class="text-center mb-8">
+            <div class="inline-flex items-center justify-center w-16 h-16 bg-indigo-50 text-indigo-600 rounded-full mb-4">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+            </div>
+            <h1 class="text-2xl font-bold text-slate-800 tracking-tight">PDF to Markdown</h1>
+            <p class="text-slate-500 mt-1 text-sm">Upload your PDF to convert it to clean Markdown and download automatically.</p>
+        </div>
+
+        <div id="drop-zone" class="border-2 border-dashed border-slate-200 rounded-xl p-8 text-center hover:border-indigo-500 hover:bg-indigo-50/30 transition-all cursor-pointer group">
+            <input type="file" id="file-input" accept=".pdf" class="hidden" />
+            <div class="space-y-3">
+                <svg xmlns="http://www.w3.org/2000/svg" class="mx-auto h-12 w-12 text-slate-400 group-hover:text-indigo-500 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                </svg>
+                <div class="text-sm text-slate-600">
+                    <span class="font-medium text-indigo-600 group-hover:text-indigo-700">Click to upload</span> or drag and drop
+                </div>
+                <p class="text-xs text-slate-400">PDF files up to 50MB</p>
+            </div>
+        </div>
+
+        <div id="status-container" class="mt-6 hidden">
+            <div class="flex items-center justify-between mb-2">
+                <span id="status-text" class="text-sm font-medium text-slate-700">Processing...</span>
+                <span id="status-percentage" class="text-sm font-semibold text-indigo-600">0%</span>
+            </div>
+            <div class="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+                <div id="progress-bar" class="bg-indigo-600 h-2 rounded-full w-0 transition-all duration-200"></div>
+            </div>
+        </div>
+
+        <div id="success-container" class="mt-6 hidden bg-emerald-50 border border-emerald-100 rounded-xl p-4 flex items-center space-x-3">
+            <div class="flex-shrink-0 w-8 h-8 bg-emerald-500 text-white rounded-full flex items-center justify-center">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
+                </svg>
+            </div>
+            <div class="flex-1">
+                <h3 class="text-sm font-medium text-emerald-800">Conversion Complete!</h3>
+                <p class="text-xs text-emerald-600 mt-0.5">Your Markdown file should download automatically. If not, <button id="retry-dl" class="underline font-semibold text-emerald-700 hover:text-emerald-800">click here</button>.</p>
+            </div>
+        </div>
+    </div>
+
+    <p class="text-xs text-slate-400 mt-6">All processing happens locally. Your PDF never leaves your device.</p>
+
+    <script>
+        // Initialize PDF.js worker
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
+
+        const dropZone = document.getElementById('drop-zone');
+        const fileInput = document.getElementById('file-input');
+        const statusContainer = document.getElementById('status-container');
+        const statusText = document.getElementById('status-text');
+        const statusPercentage = document.getElementById('status-percentage');
+        const progressBar = document.getElementById('progress-bar');
+        const successContainer = document.getElementById('success-container');
+        const retryDlBtn = document.getElementById('retry-dl');
+
+        let generatedMarkdown = "";
+        let generatedFilename = "";
+
+        // Trigger file input click when clicking drop zone
+        dropZone.addEventListener('click', () => fileInput.click());
+
+        // Handle file drop events
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('border-indigo-500', 'bg-indigo-50/50');
+        });
+
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('border-indigo-500', 'bg-indigo-50/50');
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('border-indigo-500', 'bg-indigo-50/50');
+            const files = e.dataTransfer.files;
+            if (files.length > 0 && files[0].type === 'application/pdf') {
+                processPDF(files[0]);
+            } else {
+                alert("Please drop a valid PDF file.");
+            }
+        });
+
+        // Handle standard file selection
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                processPDF(e.target.files[0]);
+            }
+        });
+
+        // Main conversion function
+        async function processPDF(file) {
+            // UI Reset
+            successContainer.classList.add('hidden');
+            statusContainer.classList.remove('hidden');
+            updateProgress(0, 'Reading file...');
+
+            generatedFilename = file.name.replace(/\.[^/.]+$/, "") + ".md";
+
+            try {
+                const reader = new FileReader();
+                reader.readAsArrayBuffer(file);
+                
+                reader.onload = async function () {
+                    const typedarray = new Uint8Array(this.result);
+                    
+                    // Load the PDF Document
+                    const pdf = await pdfjsLib.getDocument(typedarray).promise;
+                    const numPages = pdf.numPages;
+                    let fullText = "";
+
+                    // Track headers or structures roughly by examining strings
+                    // (Simple PDF extraction converts text blocks into readable paragraphs)
+                    for (let i = 1; i <= numPages; i++) {
+                        updateProgress(Math.round((i / numPages) * 100), `Parsing page ${i} of ${numPages}...`);
+                        
+                        const page = await pdf.getPage(i);
+                        const textContent = await page.getTextContent();
+                        
+                        let lastY = null;
+                        let pageText = `\n\n## Page ${i}\n\n`;
+
+                        for (const item of textContent.items) {
+                            // If the layout drops to a new line significantly, append a line break
+                            if (lastY !== null && Math.abs(item.transform[5] - lastY) > 5) {
+                                pageText += "\n";
+                            }
+                            pageText += item.str + " ";
+                            lastY = item.transform[5];
+                        }
+                        
+                        // Basic cleanup of multiple consecutive spaces
+                        fullText += pageText.replace(/[ ]+/g, ' ');
+                    }
+
+                    // Set global state and trigger auto-download
+                    generatedMarkdown = fullText.trim();
+                    statusContainer.classList.add('hidden');
+                    successContainer.classList.remove('hidden');
+                    
+                    downloadMarkdown(generatedMarkdown, generatedFilename);
+                };
+            } catch (error) {
+                console.error(error);
+                alert("An error occurred while parsing the PDF.");
+                statusContainer.classList.add('hidden');
+            }
+        }
+
+        // Helper to update UI progress bar
+        function updateProgress(percentage, text) {
+            statusText.innerText = text;
+            statusPercentage.innerText = `${percentage}%`;
+            progressBar.style.width = `${percentage}%`;
+        }
+
+        // Helper to trigger browser download
+        function downloadMarkdown(text, filename) {
+            const blob = new Blob([text], { type: 'text/markdown;charset=utf-8;' });
+            const link = document.createElement("a");
+            
+            if (navigator.msSaveBlob) { // IE 10+
+                navigator.msSaveBlob(blob, filename);
+            } else {
+                const url = URL.createObjectURL(blob);
+                link.setAttribute("href", url);
+                link.setAttribute("download", filename);
+                link.style.visibility = 'hidden';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            }
+        }
+
+        // Manual retry click link
+        retryDlBtn.addEventListener('click', () => {
+            if(generatedMarkdown) downloadMarkdown(generatedMarkdown, generatedFilename);
+        });
+    </script>
+</body>
+</html>
